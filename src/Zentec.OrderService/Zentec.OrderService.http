@@ -1,0 +1,6 @@
+@Zentec.OrderService_HostAddress = http://localhost:5222
+
+GET {{Zentec.OrderService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

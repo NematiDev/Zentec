@@ -1,0 +1,6 @@
+@Zentec.PaymentService_HostAddress = http://localhost:5179
+
+GET {{Zentec.PaymentService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
