@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36705.20 d17.14
+VisualStudioVersion = 17.14.36705.20
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
@@ -16,6 +16,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zentec.OrderService", "src\Zentec.OrderService\Zentec.OrderService.csproj", "{11CC3143-B823-4749-96F6-15073629B35C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zentec.NotificationService", "src\Zentec.NotificationService\Zentec.NotificationService.csproj", "{E4F9BAF8-D1D1-4117-92D4-7BB82C424041}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zentec.ApiGateway", "src\Zentec.ApiGateway\Zentec.ApiGateway.csproj", "{8F5D56E7-5BBD-483E-8955-983595DFED88}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -43,6 +45,10 @@ Global
 		{E4F9BAF8-D1D1-4117-92D4-7BB82C424041}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E4F9BAF8-D1D1-4117-92D4-7BB82C424041}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E4F9BAF8-D1D1-4117-92D4-7BB82C424041}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8F5D56E7-5BBD-483E-8955-983595DFED88}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8F5D56E7-5BBD-483E-8955-983595DFED88}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8F5D56E7-5BBD-483E-8955-983595DFED88}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8F5D56E7-5BBD-483E-8955-983595DFED88}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -53,6 +59,7 @@ Global
 		{70EFF26D-6134-405C-87A1-D30D4C8FC9CC} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{11CC3143-B823-4749-96F6-15073629B35C} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{E4F9BAF8-D1D1-4117-92D4-7BB82C424041} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{8F5D56E7-5BBD-483E-8955-983595DFED88} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {4E66B798-C4B0-40EE-B6AF-1BA8E9D41F5F}
