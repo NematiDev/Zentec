@@ -16,7 +16,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<UserDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
-builder.Services.AddIdentityCore<ApplicationUser>(options =>
+builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 {
     options.Password.RequiredLength = 7;
     options.Password.RequireDigit = true;
@@ -24,16 +24,20 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     options.Password.RequireUppercase = true;
 
     options.User.RequireUniqueEmail = true;
+
+    options.SignIn.RequireConfirmedEmail = false;
 })
-    .AddRoles<IdentityRole<Guid>>()
     .AddEntityFrameworkStores<UserDbContext>()
-    .AddSignInManager()
     .AddDefaultTokenProviders();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var signinKey = jwtSettings["SigninKey"] ?? throw new Exception("JwtSettings:SigninKey missing.");
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
@@ -48,6 +52,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.FromSeconds(30)
         };
     });
+
+builder.Services.AddAuthorization();
+
+// Register custom services
 
 
 var app = builder.Build();
