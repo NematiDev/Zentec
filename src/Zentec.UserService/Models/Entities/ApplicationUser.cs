@@ -20,9 +20,6 @@ namespace Zentec.UserService.Models.Entities
         public string LastName { get; set; } = string.Empty;
 
         [MaxLength(100)]
-        public string? Country {  get; set; }
-
-        [MaxLength(100)]
         public string? Province { get; set; }
 
         [MaxLength(100)]
@@ -33,5 +30,9 @@ namespace Zentec.UserService.Models.Entities
 
         [MaxLength(20)]
         public string? PostalCode { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+        public DateTime? UpdatedAt { get; set; }
     }
 }
