@@ -1,11 +1,19 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Zentec.UserService.Controllers
 {
-    [Route("api/[controller]")]
+    /// <summary>
+    /// Controller for user profile and account management operations
+    /// </summary>
     [ApiController]
+    [Route("api/[controller]")]
+    [Authorize]
+    [Produces("application/json")]
     public class UserController : ControllerBase
     {
+
+
     }
 }

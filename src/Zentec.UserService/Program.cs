@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text;
 using Zentec.UserService.Data;
 using Zentec.UserService.Models.Entities;
+using Zentec.UserService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -72,7 +73,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
     .AddDefaultTokenProviders();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var signinKey = jwtSettings["SigningKey"] ?? throw new Exception("JwtSettings:SigningKey missing.");
+var signingKey = jwtSettings["SigningKey"] ?? throw new Exception("JwtSettings:SigningKey missing.");
 
 builder.Services.AddAuthentication(options =>
 {
@@ -88,7 +89,7 @@ builder.Services.AddAuthentication(options =>
             ValidateAudience = true,
             ValidAudience = jwtSettings["Audience"],
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signinKey)),
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30)
         };
@@ -102,7 +103,8 @@ builder.Host.UseSerilog((context, config) =>
 });
 
 // Register custom services
-
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 
 var app = builder.Build();
 

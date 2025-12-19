@@ -7,10 +7,6 @@ namespace Zentec.UserService.Models.DTOs
     /// </summary>
     public class UpdateProfileRequest
     {
-        [EmailAddress(ErrorMessage = "Invalid email format.")]
-        [MaxLength(255)]
-        public string? Email { get; set; }
-
         [MaxLength(100, ErrorMessage = "First name cannot exceed 100 characters.")]
         public string? FirstName { get; set; }
 

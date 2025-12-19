@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: zentec-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zentec_userdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - zentec_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zentec_userdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: zentec-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@zentec.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+  zentec.userservice:
+    build:
+      context: .
+      dockerfile: src/Zentec.UserService/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=zentec_userdb;Username=postgres;Password=postgres
+    ports:
+      - "5001:8080"
+
+volumes:
+  zentec_pgdata:
