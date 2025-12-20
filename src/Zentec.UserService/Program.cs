@@ -23,7 +23,9 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Zentec User Service API",
         Version = "v1",
-        Description = "User management (Identity) and authentication (JWT)"
+        Description =
+            "Authentication and user profile APIs for Zentec.\n\n" +
+            "Includes JWT Bearer auth, role claims, and Identity-based user management."
     });
 
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -33,7 +35,7 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "Bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Enter your JWT as: Bearer {your_token}"
+        Description = "Paste ONLY the JWT here. Swagger will add `Bearer ` automatically."
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement

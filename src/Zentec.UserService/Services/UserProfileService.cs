@@ -138,7 +138,7 @@ namespace Zentec.UserService.Services
                     changes.Add("PostalCode");
                 }
 
-                user.UpdatedAt = DateTime.Now;
+                user.UpdatedAt = DateTime.UtcNow;
 
                 var result = await _userManager.UpdateAsync(user);
 

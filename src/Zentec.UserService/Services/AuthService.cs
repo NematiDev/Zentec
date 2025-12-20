@@ -72,7 +72,13 @@ namespace Zentec.UserService.Services
                     await _roleManager.CreateAsync(userRole);
                 }
 
-                await _userManager.AddToRoleAsync(user, "User");
+                if (!await _roleManager.RoleExistsAsync("Admin"))
+                {
+                    var adminRole = new IdentityRole<Guid>("Admin");
+                    await _roleManager.CreateAsync(adminRole);
+                }
+
+                await _userManager.AddToRoleAsync(user, "Admin");
 
                 var token = await GenerateJwtTokenAsync(user);
 
@@ -162,7 +168,7 @@ namespace Zentec.UserService.Services
                     {
                         Token = token,
                         ExpiresAt = DateTime.UtcNow.AddHours(
-                            int.Parse(_config["JwtSettings:ExpirationHours"] ?? "24")),
+                            int.Parse(_config["JwtSettings:AccessTokenHours"] ?? "24")),
                         User = new UserBasicResponse
                         {
                             Id = user.Id,

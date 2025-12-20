@@ -33,9 +33,6 @@ namespace Zentec.UserService.Controllers
         /// <response code="401">Unauthorized - user not authenticated</response>
         /// <response code="404">User not found</response>
         [HttpGet("profile")]
-        [ProducesResponseType(typeof(ApiResponse<UserProfileResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<UserProfileResponse>), StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(typeof(ApiResponse<UserProfileResponse>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetProfile()
         {
             try
@@ -84,9 +81,6 @@ namespace Zentec.UserService.Controllers
         /// <response code="400">Invalid input or update failed</response>
         /// <response code="401">Unauthorized - user not authenticated</response>
         [HttpPut("profile")]
-        [ProducesResponseType(typeof(ApiResponse<UserProfileResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<UserProfileResponse>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(ApiResponse<UserProfileResponse>), StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
         {
             try

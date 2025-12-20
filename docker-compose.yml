@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16
-    container_name: zentec-postgres
+    container_name: zentec-user-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -11,34 +11,84 @@ services:
     volumes:
       - zentec_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d zentec_userdb"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U postgres -d zentec_userdb"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: zentec-pgadmin
+    container_name: zentec-user-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@zentec.com
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
+  mongodb:
+    image: mongo:7
+    container_name: zentec-product-mongodb
+    environment:
+      MONGO_INITDB_DATABASE: zentec_productdb
+    ports:
+      - "27017:27017"
+    volumes:
+      - zentec_mongodata:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: zentec-product-mongo-express
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "false"
+    ports:
+      - "8081:8081"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
 
   zentec.userservice:
     build:
       context: .
       dockerfile: src/Zentec.UserService/Dockerfile
+    container_name: zentec-userservice
     depends_on:
       postgres:
         condition: service_healthy
     environment:
+      ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=zentec_userdb;Username=postgres;Password=postgres
     ports:
       - "5001:8080"
 
+  zentec.productservice:
+    build:
+      context: .
+      dockerfile: src/Zentec.ProductService/Dockerfile
+    container_name: zentec-productservice
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Mongo: mongodb://mongodb:27017/zentec_productdb
+    ports:
+      - "5002:8080"
+
 volumes:
   zentec_pgdata:
+  zentec_mongodata:
