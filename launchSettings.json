@@ -4,12 +4,10 @@
       "commandName": "DockerCompose",
       "commandVersion": "1.0",
       "serviceActions": {
-        "zentec.userservice": "StartDebugging",
-        "mongodb": "StartWithoutDebugging",
-        "mongo-express": "StartWithoutDebugging",
-        "pgadmin": "StartWithoutDebugging",
-        "postgres": "StartWithoutDebugging",
-        "zentec.productservice": "StartDebugging"
+        "user-service": "StartDebugging",
+        "product-service": "StartDebugging",
+        "user-db": "StartWithoutDebugging",
+        "product-db": "StartWithoutDebugging"
       }
     }
   }

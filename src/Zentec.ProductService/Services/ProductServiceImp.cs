@@ -491,6 +491,111 @@ namespace Zentec.ProductService.Services
             }
         }
 
+
+
+        public async Task<ApiResponse<StockReservationResponse>> ReserveStockAsync(string productId, int quantity)
+        {
+            try
+            {
+                if (quantity <= 0)
+                {
+                    return new ApiResponse<StockReservationResponse>
+                    {
+                        Success = false,
+                        Message = "Quantity must be greater than zero"
+                    };
+                }
+
+                // Atomic decrement: only match if product is active and has enough stock
+                var filter = Builders<Product>.Filter.And(
+                    Builders<Product>.Filter.Eq(p => p.Id, productId),
+                    Builders<Product>.Filter.Eq(p => p.IsActive, true),
+                    Builders<Product>.Filter.Gte(p => p.StockQuantity, quantity)
+                );
+
+                var update = Builders<Product>.Update
+                    .Inc(p => p.StockQuantity, -quantity)
+                    .Set(p => p.UpdatedAt, DateTime.UtcNow);
+
+                var options = new FindOneAndUpdateOptions<Product>
+                {
+                    ReturnDocument = ReturnDocument.After
+                };
+
+                var updated = await _context.Products.FindOneAndUpdateAsync(filter, update, options);
+
+                if (updated == null)
+                {
+                    return new ApiResponse<StockReservationResponse>
+                    {
+                        Success = false,
+                        Message = "Insufficient stock or product not available",
+                        Errors = new List<string> { "Product is inactive, missing, or does not have enough stock" }
+                    };
+                }
+
+                return new ApiResponse<StockReservationResponse>
+                {
+                    Success = true,
+                    Message = "Stock reserved successfully",
+                    Data = new StockReservationResponse
+                    {
+                        ProductId = updated.Id,
+                        ProductName = updated.Name,
+                        UnitPrice = updated.Price,
+                        ReservedQuantity = quantity,
+                        RemainingStock = updated.StockQuantity
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reserving stock for product: {ProductId}", productId);
+                return new ApiResponse<StockReservationResponse>
+                {
+                    Success = false,
+                    Message = "An error occurred while reserving stock"
+                };
+            }
+        }
+
+        public async Task<ApiResponse<bool>> ReleaseStockAsync(string productId, int quantity)
+        {
+            try
+            {
+                if (quantity <= 0)
+                {
+                    return new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Quantity must be greater than zero"
+                    };
+                }
+
+                var filter = Builders<Product>.Filter.Eq(p => p.Id, productId);
+                var update = Builders<Product>.Update
+                    .Inc(p => p.StockQuantity, quantity)
+                    .Set(p => p.UpdatedAt, DateTime.UtcNow);
+
+                var result = await _context.Products.UpdateOneAsync(filter, update);
+
+                return new ApiResponse<bool>
+                {
+                    Success = result.MatchedCount > 0,
+                    Message = result.MatchedCount > 0 ? "Stock released successfully" : "Product not found",
+                    Data = result.MatchedCount > 0
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error releasing stock for product: {ProductId}", productId);
+                return new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "An error occurred while releasing stock"
+                };
+            }
+        }
         private ProductResponse MapToProductResponse(Product product)
         {
             return new ProductResponse

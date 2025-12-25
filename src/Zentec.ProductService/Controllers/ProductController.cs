@@ -316,6 +316,106 @@ public class ProductController : ControllerBase
         }
     }
 
+
+
+    /// <summary>
+    /// Reserve product stock for an order (internal use).
+    /// </summary>
+    /// <param name="productId">The MongoDB id of the product.</param>
+    /// <param name="request">Reservation quantity (positive integer).</param>
+    /// <remarks>
+    /// Requires authentication. Intended for Order Service.
+    /// This operation is atomic (will fail if stock is insufficient).
+    /// </remarks>
+    /// <response code="200">Stock reserved successfully.</response>
+    /// <response code="400">Reservation failed (e.g., insufficient stock).</response>
+    /// <response code="401">Authentication is required.</response>
+    [HttpPost("{productId}/reserve")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<StockReservationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<StockReservationResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ReserveStock(string productId, [FromBody] StockReservationRequest request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new ApiResponse<StockReservationResponse>
+                {
+                    Success = false,
+                    Message = "Invalid request",
+                    Errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList()
+                });
+            }
+
+            var result = await _productService.ReserveStockAsync(productId, request.Quantity);
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reserving stock for product {ProductId}", productId);
+            return StatusCode(500, new ApiResponse<StockReservationResponse>
+            {
+                Success = false,
+                Message = "An unexpected error occurred"
+            });
+        }
+    }
+
+    /// <summary>
+    /// Release previously reserved product stock (compensation).
+    /// </summary>
+    /// <param name="productId">The MongoDB id of the product.</param>
+    /// <param name="request">Release quantity (positive integer).</param>
+    /// <remarks>
+    /// Requires authentication. Intended for Order Service.
+    /// </remarks>
+    /// <response code="200">Stock released successfully.</response>
+    /// <response code="400">Invalid request.</response>
+    /// <response code="401">Authentication is required.</response>
+    [HttpPost("{productId}/release")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ReleaseStock(string productId, [FromBody] StockReservationRequest request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "Invalid request",
+                    Errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList()
+                });
+            }
+
+            var result = await _productService.ReleaseStockAsync(productId, request.Quantity);
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error releasing stock for product {ProductId}", productId);
+            return StatusCode(500, new ApiResponse<bool>
+            {
+                Success = false,
+                Message = "An unexpected error occurred"
+            });
+        }
+    }
     /// <summary>
     /// Get all product categories.
     /// </summary>
