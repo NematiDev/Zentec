@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Reflection;
 using System.Text;
+using Zentec.PaymentService.Data;
+using Zentec.PaymentService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,7 +19,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Zentec Payment Service API",
         Version = "v1",
-        Description = "Payment simulation API"
+        Description = "Payment processing with Stripe integration. Supports payment intents, webhooks, and transaction history."
     });
 
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -48,6 +51,11 @@ builder.Services.AddSwaggerGen(options =>
     options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFilename));
 });
 
+// Database
+builder.Services.AddDbContext<PaymentDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
+
+// JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var signingKey = jwtSettings["SigningKey"] ?? "THIS_IS_A_TEST_SECRET_KEY_WITH_32+_CHARS";
 
@@ -73,10 +81,14 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+// Serilog
 builder.Host.UseSerilog((context, config) =>
 {
     config.ReadFrom.Configuration(context.Configuration);
 });
+
+// Register services
+builder.Services.AddScoped<IStripePaymentService, StripePaymentService>();
 
 var app = builder.Build();
 
@@ -95,6 +107,13 @@ app.UseSerilogRequestLogging();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Ensure database exists
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+    db.Database.EnsureCreated();
+}
 
 app.MapControllers();
 
