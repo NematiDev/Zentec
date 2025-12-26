@@ -22,7 +22,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Zentec Order Service API",
         Version = "v1",
-        Description = "Order creation, tracking, and payments. Publishes order events to RabbitMQ."
+        Description = "Shopping cart, order creation, tracking, and payments. Publishes order events to RabbitMQ."
     });
 
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -108,12 +108,21 @@ builder.Services.AddHttpClient<IPaymentClient, PaymentClient>(client =>
 })
 .AddPolicyHandler(retryPolicy);
 
+builder.Services.AddHttpClient<IUserClient, UserClient>(client =>
+{
+    var baseUrl = builder.Configuration["Services:UserServiceBaseUrl"]
+                 ?? throw new Exception("Services:UserServiceBaseUrl missing.");
+    client.BaseAddress = new Uri(baseUrl);
+})
+.AddPolicyHandler(retryPolicy);
+
 // RabbitMQ publisher
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMQ"));
 builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
 // Business services
-builder.Services.AddScoped<IOrderService, OrderServiceImp>();
+builder.Services.AddScoped<ICartService, CartService>();
+builder.Services.AddScoped<IOrderQueryService, OrderQueryService>();
 
 var app = builder.Build();
 

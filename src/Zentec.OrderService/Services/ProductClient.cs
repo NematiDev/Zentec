@@ -15,6 +15,39 @@ namespace Zentec.OrderService.Services
             _logger = logger;
         }
 
+        public async Task<ProductApiResponse<ProductBasicResponse>> GetBasicInfoAsync(string productId, string bearerToken, CancellationToken ct)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"api/Product/{productId}/basic");
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+
+                var res = await _http.SendAsync(req, ct);
+                var payload = await res.Content.ReadFromJsonAsync<ProductApiResponse<ProductBasicResponse>>(cancellationToken: ct);
+
+                if (payload == null)
+                {
+                    return new ProductApiResponse<ProductBasicResponse>
+                    {
+                        Success = false,
+                        Message = "Invalid response from product service"
+                    };
+                }
+
+                return payload;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling ProductService basic info for {ProductId}", productId);
+                return new ProductApiResponse<ProductBasicResponse>
+                {
+                    Success = false,
+                    Message = "Product service unavailable",
+                    Errors = new List<string> { ex.Message }
+                };
+            }
+        }
+
         public async Task<ProductApiResponse<ReserveStockResponse>> ReserveAsync(string productId, int quantity, string bearerToken, CancellationToken ct)
         {
             try

@@ -4,6 +4,7 @@ namespace Zentec.OrderService.Services
 {
     public interface IProductClient
     {
+        Task<ProductApiResponse<ProductBasicResponse>> GetBasicInfoAsync(string productId, string bearerToken, CancellationToken ct);
         Task<ProductApiResponse<ReserveStockResponse>> ReserveAsync(string productId, int quantity, string bearerToken, CancellationToken ct);
         Task<ProductApiResponse<bool>> ReleaseAsync(string productId, int quantity, string bearerToken, CancellationToken ct);
     }

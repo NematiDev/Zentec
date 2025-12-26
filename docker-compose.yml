@@ -123,6 +123,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      user-service:
+        condition: service_started
       product-service:
         condition: service_started
       payment-service:
@@ -131,6 +133,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Postgres: Host=order-db;Port=5432;Database=zentec_orderdb;Username=postgres;Password=postgres
+      Services__UserServiceBaseUrl: http://user-service:8080/
       Services__ProductServiceBaseUrl: http://product-service:8080/
       Services__PaymentServiceBaseUrl: http://payment-service:8080/
       RabbitMQ__HostName: rabbitmq

@@ -6,56 +6,22 @@ using Zentec.OrderService.Services;
 
 namespace Zentec.OrderService.Controllers
 {
+    /// <summary>
+    /// Order history and management (view and cancel orders)
+    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
     [Produces("application/json")]
     public class OrderController : ControllerBase
     {
-        private readonly IOrderService _orderService;
+        private readonly IOrderQueryService _orderQueryService;
         private readonly ILogger<OrderController> _logger;
 
-        public OrderController(IOrderService orderService, ILogger<OrderController> logger)
+        public OrderController(IOrderQueryService orderQueryService, ILogger<OrderController> logger)
         {
-            _orderService = orderService;
+            _orderQueryService = orderQueryService;
             _logger = logger;
-        }
-
-        /// <summary>
-        /// Create a new order for the current user.
-        /// This endpoint reserves product stock, processes payment, stores order in PostgreSQL,
-        /// and publishes an event to RabbitMQ.
-        /// </summary>
-        [HttpPost]
-        [ProducesResponseType(typeof(ApiResponse<OrderResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<OrderResponse>), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> Create([FromBody] CreateOrderRequest request, CancellationToken ct)
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var email = User.FindFirstValue("email") ?? User.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress") ?? User.FindFirstValue("Email");
-
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                return Unauthorized(new ApiResponse<OrderResponse> { Success = false, Message = "User not authenticated" });
-            }
-
-            // Bearer token is required for calling Product/Payment services.
-            var authHeader = Request.Headers.Authorization.ToString();
-            var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                ? authHeader.Substring("Bearer ".Length).Trim()
-                : string.Empty;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                return Unauthorized(new ApiResponse<OrderResponse> { Success = false, Message = "Bearer token missing" });
-            }
-
-            var result = await _orderService.CreateOrderAsync(userId, email ?? string.Empty, token, request, ct);
-
-            if (!result.Success)
-                return BadRequest(result);
-
-            return Ok(result);
         }
 
         /// <summary>
@@ -72,7 +38,7 @@ namespace Zentec.OrderService.Controllers
                 return Unauthorized(new ApiResponse<OrderResponse> { Success = false, Message = "User not authenticated" });
             }
 
-            var result = await _orderService.GetOrderAsync(userId, orderId, ct);
+            var result = await _orderQueryService.GetOrderAsync(userId, orderId, ct);
             if (!result.Success)
                 return NotFound(result);
 
@@ -80,7 +46,7 @@ namespace Zentec.OrderService.Controllers
         }
 
         /// <summary>
-        /// List orders for the current user.
+        /// List all orders for the current user with pagination.
         /// </summary>
         [HttpGet]
         [ProducesResponseType(typeof(ApiResponse<PaginatedResponse<OrderResponse>>), StatusCodes.Status200OK)]
@@ -92,7 +58,7 @@ namespace Zentec.OrderService.Controllers
                 return Unauthorized(new ApiResponse<PaginatedResponse<OrderResponse>> { Success = false, Message = "User not authenticated" });
             }
 
-            var result = await _orderService.ListOrdersAsync(userId, pageNumber, pageSize, ct);
+            var result = await _orderQueryService.ListOrdersAsync(userId, pageNumber, pageSize, ct);
             return Ok(result);
         }
 
@@ -120,7 +86,7 @@ namespace Zentec.OrderService.Controllers
                 return Unauthorized(new ApiResponse<OrderResponse> { Success = false, Message = "Bearer token missing" });
             }
 
-            var result = await _orderService.CancelOrderAsync(userId, orderId, token, ct);
+            var result = await _orderQueryService.CancelOrderAsync(userId, orderId, token, ct);
             if (!result.Success)
                 return BadRequest(result);
 
