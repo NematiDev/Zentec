@@ -15,11 +15,14 @@ namespace Zentec.OrderService.Services
             _logger = logger;
         }
 
-        public async Task<PaymentApiResponse<ProcessPaymentResponse>> ProcessAsync(ProcessPaymentRequest request, string bearerToken, CancellationToken ct)
+        public async Task<PaymentApiResponse<CreatePaymentIntentResponse>> CreatePaymentIntentAsync(
+            CreatePaymentIntentRequest request,
+            string bearerToken,
+            CancellationToken ct)
         {
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Post, "api/Payment/process")
+                using var req = new HttpRequestMessage(HttpMethod.Post, "api/Payment/create-intent")
                 {
                     Content = JsonContent.Create(request)
                 };
@@ -27,11 +30,11 @@ namespace Zentec.OrderService.Services
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
 
                 var res = await _http.SendAsync(req, ct);
-                var payload = await res.Content.ReadFromJsonAsync<PaymentApiResponse<ProcessPaymentResponse>>(cancellationToken: ct);
+                var payload = await res.Content.ReadFromJsonAsync<PaymentApiResponse<CreatePaymentIntentResponse>>(cancellationToken: ct);
 
                 if (payload == null)
                 {
-                    return new PaymentApiResponse<ProcessPaymentResponse>
+                    return new PaymentApiResponse<CreatePaymentIntentResponse>
                     {
                         Success = false,
                         Message = "Invalid response from payment service"
@@ -42,8 +45,48 @@ namespace Zentec.OrderService.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error calling PaymentService for order {OrderId}", request.OrderId);
-                return new PaymentApiResponse<ProcessPaymentResponse>
+                _logger.LogError(ex, "Error calling PaymentService create-intent for order {OrderId}", request.OrderId);
+                return new PaymentApiResponse<CreatePaymentIntentResponse>
+                {
+                    Success = false,
+                    Message = "Payment service unavailable",
+                    Errors = new List<string> { ex.Message }
+                };
+            }
+        }
+
+        public async Task<PaymentApiResponse<ConfirmPaymentResponse>> ConfirmPaymentAsync(
+            ConfirmPaymentRequest request,
+            string bearerToken,
+            CancellationToken ct)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Post, "api/Payment/confirm")
+                {
+                    Content = JsonContent.Create(request)
+                };
+
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+
+                var res = await _http.SendAsync(req, ct);
+                var payload = await res.Content.ReadFromJsonAsync<PaymentApiResponse<ConfirmPaymentResponse>>(cancellationToken: ct);
+
+                if (payload == null)
+                {
+                    return new PaymentApiResponse<ConfirmPaymentResponse>
+                    {
+                        Success = false,
+                        Message = "Invalid response from payment service"
+                    };
+                }
+
+                return payload;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling PaymentService confirm for payment intent {PaymentIntentId}", request.PaymentIntentId);
+                return new PaymentApiResponse<ConfirmPaymentResponse>
                 {
                     Success = false,
                     Message = "Payment service unavailable",

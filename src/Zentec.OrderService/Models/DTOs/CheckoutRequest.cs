@@ -1,11 +1,14 @@
 ﻿namespace Zentec.OrderService.Models.DTOs
 {
-    // Request to checkout (convert cart to order)
+    /// <summary>
+    /// Request to checkout (convert cart to order)
+    /// </summary>
     public class CheckoutRequest
     {
         /// <summary>
-        /// Optional: if true, payment service is asked to simulate failure.
+        /// Optional: Payment method ID for Stripe
+        /// If not provided, a test payment method will be used
         /// </summary>
-        public bool SimulatePaymentFailure { get; set; } = false;
+        public string? PaymentMethodId { get; set; }
     }
 }

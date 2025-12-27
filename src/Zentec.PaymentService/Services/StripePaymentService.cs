@@ -224,7 +224,14 @@ namespace Zentec.PaymentService.Services
             try
             {
                 var webhookSecret = _config["Stripe:WebhookSecret"];
-                var stripeEvent = EventUtility.ConstructEvent(payload, signature, webhookSecret);
+                var stripeEvent = EventUtility.ConstructEvent(
+                    payload,
+                    signature,
+                    webhookSecret,
+                    tolerance: 300,
+                    throwOnApiVersionMismatch: false
+                    );
+
 
                 _logger.LogInformation("Received Stripe webhook: {EventType}", stripeEvent.Type);
 

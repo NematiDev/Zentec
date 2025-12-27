@@ -1,5 +1,6 @@
 namespace Zentec.OrderService.Models.DTOs
 {
+    // Response wrapper from Payment Service
     public class PaymentApiResponse<T>
     {
         public bool Success { get; set; }
@@ -9,17 +10,38 @@ namespace Zentec.OrderService.Models.DTOs
         public DateTime Timestamp { get; set; }
     }
 
-    public class ProcessPaymentRequest
+    // Request to create a payment intent
+    public class CreatePaymentIntentRequest
     {
         public string OrderId { get; set; } = string.Empty;
         public decimal Amount { get; set; }
-        public bool SimulateFailure { get; set; }
+        public string Currency { get; set; } = "USD";
+        public List<string>? PaymentMethodTypes { get; set; }
     }
 
-    public class ProcessPaymentResponse
+    // Response from creating payment intent
+    public class CreatePaymentIntentResponse
     {
-        public bool Paid { get; set; }
+        public string PaymentIntentId { get; set; } = string.Empty;
+        public string ClientSecret { get; set; } = string.Empty;
+        public long Amount { get; set; }
+        public string Currency { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+    }
+
+    // Request to confirm payment
+    public class ConfirmPaymentRequest
+    {
+        public string PaymentIntentId { get; set; } = string.Empty;
+        public string PaymentMethodId { get; set; } = string.Empty;
+    }
+
+    // Response from confirming payment
+    public class ConfirmPaymentResponse
+    {
+        public bool Succeeded { get; set; }
         public string? TransactionId { get; set; }
-        public string? FailureReason { get; set; }
+        public string? ErrorMessage { get; set; }
+        public string Status { get; set; } = string.Empty;
     }
 }

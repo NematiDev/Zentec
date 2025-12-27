@@ -83,7 +83,6 @@ namespace Zentec.OrderService.Messaging
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to publish RabbitMQ event {RoutingKey}", routingKey);
-                // For this assignment, we log and continue; in production you might use outbox pattern.
             }
         }
 

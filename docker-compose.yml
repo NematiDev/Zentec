@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: zentec_userdb
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - zentec_user_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -50,6 +50,24 @@ services:
       - zentec_order_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d zentec_orderdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  payment-db:
+    image: postgres:16
+    networks:
+      - zentec-network
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zentec_paymentdb
+    ports:
+      - "5434:5432"
+    volumes:
+      - zentec_payment_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zentec_paymentdb"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -106,9 +124,16 @@ services:
       dockerfile: src/Zentec.PaymentService/Dockerfile
     networks:
       - zentec-network
+    depends_on:
+      payment-db:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: Host=payment-db;Port=5432;Database=zentec_paymentdb;Username=postgres;Password=postgres
+      Stripe__SecretKey: ${STRIPE_SECRET_KEY}
+      Stripe__PublishableKey: ${STRIPE_PUBLISHABLE_KEY}
+      Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET}
     ports:
       - "5003:8080"
 
@@ -169,6 +194,7 @@ volumes:
   zentec_user_pgdata:
   zentec_product_mongodata:
   zentec_order_pgdata:
+  zentec_payment_pgdata:
 
 networks:
   zentec-network:

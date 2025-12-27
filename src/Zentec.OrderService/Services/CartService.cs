@@ -268,7 +268,12 @@ namespace Zentec.OrderService.Services
             };
         }
 
-        public async Task<ApiResponse<OrderResponse>> CheckoutAsync(string userId, string userEmail, string bearerToken, CheckoutRequest request, CancellationToken ct)
+        public async Task<ApiResponse<OrderResponse>> CheckoutAsync(
+            string userId,
+            string userEmail,
+            string bearerToken,
+            CheckoutRequest request,
+            CancellationToken ct)
         {
             var cart = await _db.Carts
                 .Include(c => c.Items)
@@ -294,6 +299,7 @@ namespace Zentec.OrderService.Services
                 };
             }
 
+            // Step 1: Reserve stock for all items
             var reserved = new List<(string ProductId, int Quantity)>();
 
             foreach (var item in cart.Items)
@@ -302,6 +308,7 @@ namespace Zentec.OrderService.Services
 
                 if (!reserveRes.Success || reserveRes.Data == null)
                 {
+                    // Rollback: release all previously reserved stock
                     foreach (var r in reserved)
                         await _productClient.ReleaseAsync(r.ProductId, r.Quantity, bearerToken, ct);
 
@@ -316,6 +323,7 @@ namespace Zentec.OrderService.Services
                 reserved.Add((item.ProductId, item.Quantity));
             }
 
+            // Step 2: Create order in pending state
             var order = new Order
             {
                 UserId = userId,
@@ -340,26 +348,85 @@ namespace Zentec.OrderService.Services
 
             order.TotalAmount = order.Items.Sum(i => i.LineTotal);
             _db.Orders.Add(order);
+            await SaveChangesWithRetryAsync(ct);
 
-            var paymentReq = new ProcessPaymentRequest
+            // Step 3: Create payment intent
+            var createPaymentRequest = new CreatePaymentIntentRequest
             {
                 OrderId = order.Id.ToString(),
                 Amount = order.TotalAmount,
-                SimulateFailure = request.SimulatePaymentFailure
+                Currency = "USD"
             };
 
-            var paymentRes = await _paymentClient.ProcessAsync(paymentReq, bearerToken, ct);
+            var paymentIntentResult = await _paymentClient.CreatePaymentIntentAsync(
+                createPaymentRequest,
+                bearerToken,
+                ct);
 
-            if (!paymentRes.Success || paymentRes.Data == null || !paymentRes.Data.Paid)
+            if (!paymentIntentResult.Success || paymentIntentResult.Data == null)
             {
-                var reason = paymentRes.Data?.FailureReason ?? paymentRes.Message;
-
+                // Rollback: release stock and mark order as payment failed
                 foreach (var r in reserved)
                     await _productClient.ReleaseAsync(r.ProductId, r.Quantity, bearerToken, ct);
 
                 order.Status = OrderStatus.PaymentFailed;
                 order.UpdatedAt = DateTime.UtcNow;
+                await SaveChangesWithRetryAsync(ct);
 
+                _publisher.PublishOrderPaymentFailed(new OrderPaymentFailedEvent(
+                    OrderId: order.Id.ToString(),
+                    UserId: userId,
+                    UserEmail: userEmail,
+                    TotalAmount: order.TotalAmount,
+                    Reason: paymentIntentResult.Message,
+                    FailedAtUtc: DateTime.UtcNow));
+
+                return new ApiResponse<OrderResponse>
+                {
+                    Success = false,
+                    Message = "Failed to create payment intent",
+                    Errors = paymentIntentResult.Errors ?? new List<string> { paymentIntentResult.Message }
+                };
+            }
+
+            // Step 4: Confirm payment with payment method
+            // Use provided payment method or default test payment method
+            string paymentMethodId;
+
+            if (!string.IsNullOrWhiteSpace(request.PaymentMethodId))
+            {
+                paymentMethodId = request.PaymentMethodId;
+            }
+            else
+            {
+                // Use Stripe test payment methods
+                paymentMethodId = request.SimulatePaymentFailure
+                    ? "pm_card_chargeDeclined" // Test card that always fails
+                    : "pm_card_visa"; // Test card that always succeeds
+            }
+
+            var confirmPaymentRequest = new ConfirmPaymentRequest
+            {
+                PaymentIntentId = paymentIntentResult.Data.PaymentIntentId,
+                PaymentMethodId = paymentMethodId
+            };
+
+            var confirmResult = await _paymentClient.ConfirmPaymentAsync(
+                confirmPaymentRequest,
+                bearerToken,
+                ct);
+
+            // Step 5: Handle payment result
+            if (!confirmResult.Success || confirmResult.Data == null || !confirmResult.Data.Succeeded)
+            {
+                var reason = confirmResult.Data?.ErrorMessage ?? confirmResult.Message;
+
+                // Rollback: release stock
+                foreach (var r in reserved)
+                    await _productClient.ReleaseAsync(r.ProductId, r.Quantity, bearerToken, ct);
+
+                order.Status = OrderStatus.PaymentFailed;
+                order.UpdatedAt = DateTime.UtcNow;
                 await SaveChangesWithRetryAsync(ct);
 
                 _publisher.PublishOrderPaymentFailed(new OrderPaymentFailedEvent(
@@ -374,13 +441,14 @@ namespace Zentec.OrderService.Services
                 {
                     Success = false,
                     Message = "Payment failed",
-                    Errors = paymentRes.Errors ?? (string.IsNullOrWhiteSpace(reason) ? null : new List<string> { reason }),
+                    Errors = confirmResult.Errors ?? (string.IsNullOrWhiteSpace(reason) ? null : new List<string> { reason }),
                     Data = MapOrderToResponse(order)
                 };
             }
 
+            // Step 6: Payment successful - finalize order
             order.Status = OrderStatus.Paid;
-            order.PaymentTransactionId = paymentRes.Data.TransactionId;
+            order.PaymentTransactionId = confirmResult.Data.TransactionId;
             order.UpdatedAt = DateTime.UtcNow;
 
             cart.Status = CartStatus.CheckedOut;
