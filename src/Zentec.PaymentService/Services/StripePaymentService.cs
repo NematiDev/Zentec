@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Stripe;
+using Stripe.Checkout;
 using Zentec.PaymentService.Data;
 using Zentec.PaymentService.Models.DTOs;
 using Zentec.PaymentService.Models.Entities;
@@ -25,24 +26,68 @@ namespace Zentec.PaymentService.Services
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
         }
 
-        public async Task<ApiResponse<CreatePaymentIntentResponse>> CreatePaymentIntentAsync(
+        public async Task<ApiResponse<PaymentCheckoutSessionResponse>> CreateCheckoutSessionAsync(
             string userId,
-            CreatePaymentIntentRequest request,
+            PaymentCheckoutSessionRequest request,
             CancellationToken ct)
         {
             try
             {
-                _logger.LogInformation("Creating payment intent for order {OrderId}, amount {Amount}",
+                _logger.LogInformation("Creating Stripe Checkout session for order {OrderId}, amount {Amount}",
                     request.OrderId, request.Amount);
 
-                // Convert amount to cents (Stripe uses smallest currency unit)
+                // Convert amount to cents
                 var amountInCents = (long)(request.Amount * 100);
 
-                var options = new PaymentIntentCreateOptions
+                // Build line items
+                var lineItems = new List<SessionLineItemOptions>();
+
+                if (request.LineItems != null && request.LineItems.Any())
                 {
-                    Amount = amountInCents,
-                    Currency = request.Currency.ToLower(),
-                    PaymentMethodTypes = request.PaymentMethodTypes ?? new List<string> { "card" },
+                    foreach (var item in request.LineItems)
+                    {
+                        lineItems.Add(new SessionLineItemOptions
+                        {
+                            PriceData = new SessionLineItemPriceDataOptions
+                            {
+                                Currency = request.Currency.ToLower(),
+                                UnitAmount = (long)(item.UnitAmount * 100),
+                                ProductData = new SessionLineItemPriceDataProductDataOptions
+                                {
+                                    Name = item.Name,
+                                    Description = item.Description
+                                }
+                            },
+                            Quantity = item.Quantity
+                        });
+                    }
+                }
+                else
+                {
+                    // Fallback: single line item
+                    lineItems.Add(new SessionLineItemOptions
+                    {
+                        PriceData = new SessionLineItemPriceDataOptions
+                        {
+                            Currency = request.Currency.ToLower(),
+                            UnitAmount = amountInCents,
+                            ProductData = new SessionLineItemPriceDataProductDataOptions
+                            {
+                                Name = $"Order {request.OrderId}"
+                            }
+                        },
+                        Quantity = 1
+                    });
+                }
+
+                var options = new SessionCreateOptions
+                {
+                    PaymentMethodTypes = new List<string> { "card" },
+                    LineItems = lineItems,
+                    Mode = "payment",
+                    SuccessUrl = request.SuccessUrl,
+                    CancelUrl = request.CancelUrl,
+                    CustomerEmail = request.CustomerEmail,
                     Metadata = new Dictionary<string, string>
                     {
                         { "order_id", request.OrderId },
@@ -50,10 +95,10 @@ namespace Zentec.PaymentService.Services
                     }
                 };
 
-                var service = new PaymentIntentService();
-                var paymentIntent = await service.CreateAsync(options, cancellationToken: ct);
+                var service = new SessionService();
+                var session = await service.CreateAsync(options, cancellationToken: ct);
 
-                // Store in database
+                // Store initial transaction record
                 var transaction = new PaymentTransaction
                 {
                     OrderId = request.OrderId,
@@ -61,31 +106,31 @@ namespace Zentec.PaymentService.Services
                     Amount = amountInCents,
                     Currency = request.Currency.ToUpper(),
                     Status = PaymentStatus.Pending,
-                    StripePaymentIntentId = paymentIntent.Id,
+                    StripePaymentIntentId = session.PaymentIntentId,
                     IsTestPayment = false
                 };
 
                 _db.PaymentTransactions.Add(transaction);
                 await _db.SaveChangesAsync(ct);
 
-                return new ApiResponse<CreatePaymentIntentResponse>
+                var publishableKey = _config["Stripe:PublishableKey"] ?? "";
+
+                return new ApiResponse<PaymentCheckoutSessionResponse>
                 {
                     Success = true,
-                    Message = "Payment intent created successfully",
-                    Data = new CreatePaymentIntentResponse
+                    Message = "Checkout session created successfully",
+                    Data = new PaymentCheckoutSessionResponse
                     {
-                        PaymentIntentId = paymentIntent.Id,
-                        ClientSecret = paymentIntent.ClientSecret,
-                        Amount = paymentIntent.Amount,
-                        Currency = paymentIntent.Currency,
-                        Status = paymentIntent.Status
+                        SessionId = session.Id,
+                        SessionUrl = session.Url,
+                        PublishableKey = publishableKey
                     }
                 };
             }
             catch (StripeException ex)
             {
-                _logger.LogError(ex, "Stripe error creating payment intent for order {OrderId}", request.OrderId);
-                return new ApiResponse<CreatePaymentIntentResponse>
+                _logger.LogError(ex, "Stripe error creating checkout session for order {OrderId}", request.OrderId);
+                return new ApiResponse<PaymentCheckoutSessionResponse>
                 {
                     Success = false,
                     Message = "Payment gateway error",
@@ -94,80 +139,8 @@ namespace Zentec.PaymentService.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating payment intent for order {OrderId}", request.OrderId);
-                return new ApiResponse<CreatePaymentIntentResponse>
-                {
-                    Success = false,
-                    Message = "An unexpected error occurred"
-                };
-            }
-        }
-
-        public async Task<ApiResponse<ConfirmPaymentResponse>> ConfirmPaymentAsync(
-            string userId,
-            ConfirmPaymentRequest request,
-            CancellationToken ct)
-        {
-            try
-            {
-                _logger.LogInformation("Confirming payment intent {PaymentIntentId}", request.PaymentIntentId);
-
-                var options = new PaymentIntentConfirmOptions
-                {
-                    PaymentMethod = request.PaymentMethodId
-                };
-
-                var service = new PaymentIntentService();
-                var paymentIntent = await service.ConfirmAsync(request.PaymentIntentId, options, cancellationToken: ct);
-
-                // Update database
-                var transaction = await _db.PaymentTransactions
-                    .FirstOrDefaultAsync(p => p.StripePaymentIntentId == request.PaymentIntentId, ct);
-
-                if (transaction != null)
-                {
-                    transaction.Status = paymentIntent.Status == "succeeded"
-                        ? PaymentStatus.Succeeded
-                        : PaymentStatus.Failed;
-
-                    if (paymentIntent.LatestCharge != null)
-                    {
-                        transaction.StripeChargeId = paymentIntent.LatestChargeId;
-                    }
-
-                    transaction.UpdatedAt = DateTime.UtcNow;
-                    await _db.SaveChangesAsync(ct);
-                }
-
-                var succeeded = paymentIntent.Status == "succeeded";
-
-                return new ApiResponse<ConfirmPaymentResponse>
-                {
-                    Success = true,
-                    Message = succeeded ? "Payment successful" : "Payment failed",
-                    Data = new ConfirmPaymentResponse
-                    {
-                        Succeeded = succeeded,
-                        TransactionId = transaction?.Id.ToString(),
-                        Status = paymentIntent.Status,
-                        ErrorMessage = paymentIntent.LastPaymentError?.Message
-                    }
-                };
-            }
-            catch (StripeException ex)
-            {
-                _logger.LogError(ex, "Stripe error confirming payment {PaymentIntentId}", request.PaymentIntentId);
-                return new ApiResponse<ConfirmPaymentResponse>
-                {
-                    Success = false,
-                    Message = "Payment failed",
-                    Errors = new List<string> { ex.Message }
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error confirming payment {PaymentIntentId}", request.PaymentIntentId);
-                return new ApiResponse<ConfirmPaymentResponse>
+                _logger.LogError(ex, "Error creating checkout session for order {OrderId}", request.OrderId);
+                return new ApiResponse<PaymentCheckoutSessionResponse>
                 {
                     Success = false,
                     Message = "An unexpected error occurred"
@@ -230,8 +203,7 @@ namespace Zentec.PaymentService.Services
                     webhookSecret,
                     tolerance: 300,
                     throwOnApiVersionMismatch: false
-                    );
-
+                );
 
                 _logger.LogInformation("Received Stripe webhook: {EventType}", stripeEvent.Type);
 
@@ -251,11 +223,37 @@ namespace Zentec.PaymentService.Services
                         await HandlePaymentFailedAsync(paymentIntent, ct);
                     }
                 }
+                else if (stripeEvent.Type == "checkout.session.completed")
+                {
+                    var session = stripeEvent.Data.Object as Session;
+                    if (session != null)
+                    {
+                        await HandleCheckoutSessionCompletedAsync(session, ct);
+                    }
+                }
             }
             catch (StripeException ex)
             {
                 _logger.LogError(ex, "Stripe webhook signature verification failed");
                 throw;
+            }
+        }
+
+        private async Task HandleCheckoutSessionCompletedAsync(Session session, CancellationToken ct)
+        {
+            if (session.PaymentStatus == "paid" && session.PaymentIntentId != null)
+            {
+                var transaction = await _db.PaymentTransactions
+                    .FirstOrDefaultAsync(p => p.StripePaymentIntentId == session.PaymentIntentId, ct);
+
+                if (transaction != null)
+                {
+                    transaction.Status = PaymentStatus.Succeeded;
+                    transaction.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync(ct);
+
+                    _logger.LogInformation("Checkout session completed for transaction {TransactionId}", transaction.Id);
+                }
             }
         }
 

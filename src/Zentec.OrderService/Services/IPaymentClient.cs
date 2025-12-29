@@ -5,6 +5,14 @@ namespace Zentec.OrderService.Services
     public interface IPaymentClient
     {
         /// <summary>
+        /// Create a Stripe Checkout session
+        /// </summary>
+        Task<PaymentApiResponse<PaymentCheckoutSessionResponse>> CreateCheckoutSessionAsync(
+            PaymentCheckoutSessionRequest request,
+            string bearerToken,
+            CancellationToken ct);
+
+        /// <summary>
         /// Create a payment intent (step 1 - reserve payment)
         /// </summary>
         Task<PaymentApiResponse<CreatePaymentIntentResponse>> CreatePaymentIntentAsync(

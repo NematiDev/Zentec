@@ -6,9 +6,13 @@
     public class CheckoutRequest
     {
         /// <summary>
-        /// Optional: Payment method ID for Stripe
-        /// If not provided, a test payment method will be used
+        /// Success URL to redirect after successful payment
         /// </summary>
-        public string? PaymentMethodId { get; set; }
+        public string SuccessUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Cancel URL to redirect after cancelled payment
+        /// </summary>
+        public string CancelUrl { get; set; } = string.Empty;
     }
 }

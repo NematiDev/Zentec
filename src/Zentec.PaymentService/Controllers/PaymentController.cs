@@ -21,22 +21,22 @@ namespace Zentec.PaymentService.Controllers
         }
 
         /// <summary>
-        /// Create a payment intent (step 1 of payment flow)
+        /// Create a Stripe Checkout session (recommended approach)
         /// </summary>
         /// <remarks>
-        /// Returns a client secret that should be passed to Stripe.js on the frontend.
-        /// The frontend then collects payment details and confirms the payment.
+        /// Creates a hosted Stripe Checkout page where customers can complete payment.
+        /// Returns a URL to redirect the customer to Stripe's payment page.
         /// </remarks>
-        [HttpPost("create-intent")]
+        [HttpPost("create-checkout-session")]
         [Authorize]
-        [ProducesResponseType(typeof(ApiResponse<CreatePaymentIntentResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<CreatePaymentIntentResponse>), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> CreateIntent([FromBody] CreatePaymentIntentRequest request, CancellationToken ct)
+        [ProducesResponseType(typeof(ApiResponse<PaymentCheckoutSessionResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<PaymentCheckoutSessionResponse>), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> CreateCheckoutSession([FromBody] PaymentCheckoutSessionRequest request, CancellationToken ct)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(userId))
             {
-                return Unauthorized(new ApiResponse<CreatePaymentIntentResponse>
+                return Unauthorized(new ApiResponse<PaymentCheckoutSessionResponse>
                 {
                     Success = false,
                     Message = "User not authenticated"
@@ -45,7 +45,7 @@ namespace Zentec.PaymentService.Controllers
 
             if (!ModelState.IsValid)
             {
-                return BadRequest(new ApiResponse<CreatePaymentIntentResponse>
+                return BadRequest(new ApiResponse<PaymentCheckoutSessionResponse>
                 {
                     Success = false,
                     Message = "Invalid request",
@@ -56,51 +56,7 @@ namespace Zentec.PaymentService.Controllers
                 });
             }
 
-            var result = await _paymentService.CreatePaymentIntentAsync(userId, request, ct);
-
-            if (!result.Success)
-                return BadRequest(result);
-
-            return Ok(result);
-        }
-
-        /// <summary>
-        /// Confirm a payment (step 2 of payment flow)
-        /// </summary>
-        /// <remarks>
-        /// Called after the frontend has collected payment details.
-        /// Alternatively, you can confirm directly from the frontend using Stripe.js.
-        /// </remarks>
-        [HttpPost("confirm")]
-        [Authorize]
-        [ProducesResponseType(typeof(ApiResponse<ConfirmPaymentResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<ConfirmPaymentResponse>), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> Confirm([FromBody] ConfirmPaymentRequest request, CancellationToken ct)
-        {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                return Unauthorized(new ApiResponse<ConfirmPaymentResponse>
-                {
-                    Success = false,
-                    Message = "User not authenticated"
-                });
-            }
-
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(new ApiResponse<ConfirmPaymentResponse>
-                {
-                    Success = false,
-                    Message = "Invalid request",
-                    Errors = ModelState.Values
-                        .SelectMany(v => v.Errors)
-                        .Select(e => e.ErrorMessage)
-                        .ToList()
-                });
-            }
-
-            var result = await _paymentService.ConfirmPaymentAsync(userId, request, ct);
+            var result = await _paymentService.CreateCheckoutSessionAsync(userId, request, ct);
 
             if (!result.Success)
                 return BadRequest(result);

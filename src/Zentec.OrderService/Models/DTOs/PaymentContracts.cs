@@ -10,6 +10,36 @@ namespace Zentec.OrderService.Models.DTOs
         public DateTime Timestamp { get; set; }
     }
 
+    // ========== Checkout Session (Payment Service Contracts) ==========
+
+    public class PaymentCheckoutSessionRequest
+    {
+        public string OrderId { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public string Currency { get; set; } = "USD";
+        public string SuccessUrl { get; set; } = string.Empty;
+        public string CancelUrl { get; set; } = string.Empty;
+        public string? CustomerEmail { get; set; }
+        public List<PaymentCheckoutLineItem>? LineItems { get; set; }
+    }
+
+    public class PaymentCheckoutLineItem
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public decimal UnitAmount { get; set; }
+        public int Quantity { get; set; }
+    }
+
+    public class PaymentCheckoutSessionResponse
+    {
+        public string SessionId { get; set; } = string.Empty;
+        public string SessionUrl { get; set; } = string.Empty;
+        public string PublishableKey { get; set; } = string.Empty;
+    }
+
+    // ========== Payment Intent ==========
+
     // Request to create a payment intent
     public class CreatePaymentIntentRequest
     {

@@ -35,8 +35,8 @@ namespace Zentec.OrderService.Services
         Task<UserProfileValidation> ValidateUserProfileAsync(string userId, string bearerToken, CancellationToken ct);
 
         /// <summary>
-        /// Checkout: convert cart to order and process payment
+        /// Checkout: convert cart to order and create Stripe Checkout session
         /// </summary>
-        Task<ApiResponse<OrderResponse>> CheckoutAsync(string userId, string userEmail, string bearerToken, CheckoutRequest request, CancellationToken ct);
+        Task<ApiResponse<CheckoutResponse>> CheckoutAsync(string userId, string userEmail, string bearerToken, CheckoutRequest request, CancellationToken ct);
     }
 }

@@ -268,7 +268,7 @@ namespace Zentec.OrderService.Services
             };
         }
 
-        public async Task<ApiResponse<OrderResponse>> CheckoutAsync(
+        public async Task<ApiResponse<CheckoutResponse>> CheckoutAsync(
             string userId,
             string userEmail,
             string bearerToken,
@@ -281,7 +281,7 @@ namespace Zentec.OrderService.Services
 
             if (cart == null || cart.Items == null || cart.Items.Count == 0)
             {
-                return new ApiResponse<OrderResponse>
+                return new ApiResponse<CheckoutResponse>
                 {
                     Success = false,
                     Message = "Cart is empty"
@@ -291,7 +291,7 @@ namespace Zentec.OrderService.Services
             var validation = await ValidateUserProfileAsync(userId, bearerToken, ct);
             if (!validation.IsValid)
             {
-                return new ApiResponse<OrderResponse>
+                return new ApiResponse<CheckoutResponse>
                 {
                     Success = false,
                     Message = "User profile is incomplete",
@@ -312,7 +312,7 @@ namespace Zentec.OrderService.Services
                     foreach (var r in reserved)
                         await _productClient.ReleaseAsync(r.ProductId, r.Quantity, bearerToken, ct);
 
-                    return new ApiResponse<OrderResponse>
+                    return new ApiResponse<CheckoutResponse>
                     {
                         Success = false,
                         Message = "Unable to reserve product stock",
@@ -350,20 +350,31 @@ namespace Zentec.OrderService.Services
             _db.Orders.Add(order);
             await SaveChangesWithRetryAsync(ct);
 
-            // Step 3: Create payment intent
-            var createPaymentRequest = new CreatePaymentIntentRequest
+            // Step 3: Create Stripe Checkout Session
+            var lineItems = order.Items.Select(i => new PaymentCheckoutLineItem
+            {
+                Name = i.ProductName,
+                UnitAmount = i.UnitPrice,
+                Quantity = i.Quantity
+            }).ToList();
+
+            var checkoutRequest = new PaymentCheckoutSessionRequest
             {
                 OrderId = order.Id.ToString(),
                 Amount = order.TotalAmount,
-                Currency = "USD"
+                Currency = "USD",
+                SuccessUrl = request.SuccessUrl,
+                CancelUrl = request.CancelUrl,
+                CustomerEmail = userEmail,
+                LineItems = lineItems
             };
 
-            var paymentIntentResult = await _paymentClient.CreatePaymentIntentAsync(
-                createPaymentRequest,
+            var checkoutResult = await _paymentClient.CreateCheckoutSessionAsync(
+                checkoutRequest,
                 bearerToken,
                 ct);
 
-            if (!paymentIntentResult.Success || paymentIntentResult.Data == null)
+            if (!checkoutResult.Success || checkoutResult.Data == null)
             {
                 // Rollback: release stock and mark order as payment failed
                 foreach (var r in reserved)
@@ -378,97 +389,32 @@ namespace Zentec.OrderService.Services
                     UserId: userId,
                     UserEmail: userEmail,
                     TotalAmount: order.TotalAmount,
-                    Reason: paymentIntentResult.Message,
+                    Reason: checkoutResult.Message,
                     FailedAtUtc: DateTime.UtcNow));
 
-                return new ApiResponse<OrderResponse>
+                return new ApiResponse<CheckoutResponse>
                 {
                     Success = false,
-                    Message = "Failed to create payment intent",
-                    Errors = paymentIntentResult.Errors ?? new List<string> { paymentIntentResult.Message }
+                    Message = "Failed to create checkout session",
+                    Errors = checkoutResult.Errors ?? new List<string> { checkoutResult.Message }
                 };
             }
 
-            // Step 4: Confirm payment with payment method
-            // Use provided payment method or default test payment method
-            string paymentMethodId;
-
-            if (!string.IsNullOrWhiteSpace(request.PaymentMethodId))
-            {
-                paymentMethodId = request.PaymentMethodId;
-            }
-            else
-            {
-                // Use Stripe test payment methods
-                paymentMethodId = request.SimulatePaymentFailure
-                    ? "pm_card_chargeDeclined" // Test card that always fails
-                    : "pm_card_visa"; // Test card that always succeeds
-            }
-
-            var confirmPaymentRequest = new ConfirmPaymentRequest
-            {
-                PaymentIntentId = paymentIntentResult.Data.PaymentIntentId,
-                PaymentMethodId = paymentMethodId
-            };
-
-            var confirmResult = await _paymentClient.ConfirmPaymentAsync(
-                confirmPaymentRequest,
-                bearerToken,
-                ct);
-
-            // Step 5: Handle payment result
-            if (!confirmResult.Success || confirmResult.Data == null || !confirmResult.Data.Succeeded)
-            {
-                var reason = confirmResult.Data?.ErrorMessage ?? confirmResult.Message;
-
-                // Rollback: release stock
-                foreach (var r in reserved)
-                    await _productClient.ReleaseAsync(r.ProductId, r.Quantity, bearerToken, ct);
-
-                order.Status = OrderStatus.PaymentFailed;
-                order.UpdatedAt = DateTime.UtcNow;
-                await SaveChangesWithRetryAsync(ct);
-
-                _publisher.PublishOrderPaymentFailed(new OrderPaymentFailedEvent(
-                    OrderId: order.Id.ToString(),
-                    UserId: userId,
-                    UserEmail: userEmail,
-                    TotalAmount: order.TotalAmount,
-                    Reason: reason,
-                    FailedAtUtc: DateTime.UtcNow));
-
-                return new ApiResponse<OrderResponse>
-                {
-                    Success = false,
-                    Message = "Payment failed",
-                    Errors = confirmResult.Errors ?? (string.IsNullOrWhiteSpace(reason) ? null : new List<string> { reason }),
-                    Data = MapOrderToResponse(order)
-                };
-            }
-
-            // Step 6: Payment successful - finalize order
-            order.Status = OrderStatus.Paid;
-            order.PaymentTransactionId = confirmResult.Data.TransactionId;
-            order.UpdatedAt = DateTime.UtcNow;
-
+            // Mark cart as checked out (user will be redirected to Stripe)
             cart.Status = CartStatus.CheckedOut;
             cart.UpdatedAt = DateTime.UtcNow;
-
             await SaveChangesWithRetryAsync(ct);
 
-            _publisher.PublishOrderPaid(new OrderPaidEvent(
-                OrderId: order.Id.ToString(),
-                UserId: userId,
-                UserEmail: userEmail,
-                TotalAmount: order.TotalAmount,
-                PaymentTransactionId: order.PaymentTransactionId,
-                PaidAtUtc: DateTime.UtcNow));
-
-            return new ApiResponse<OrderResponse>
+            return new ApiResponse<CheckoutResponse>
             {
                 Success = true,
-                Message = "Order created and paid successfully",
-                Data = MapOrderToResponse(order)
+                Message = "Checkout session created. Redirect user to payment URL.",
+                Data = new CheckoutResponse
+                {
+                    OrderId = order.Id,
+                    CheckoutUrl = checkoutResult.Data.SessionUrl,
+                    SessionId = checkoutResult.Data.SessionId
+                }
             };
         }
 
@@ -511,31 +457,6 @@ namespace Zentec.OrderService.Services
                     Quantity = i.Quantity,
                     LineTotal = i.LineTotal,
                     AddedAt = i.AddedAt
-                }).ToList()
-            };
-        }
-
-        private static OrderResponse MapOrderToResponse(Order order)
-        {
-            order.Items ??= new List<OrderItem>();
-
-            return new OrderResponse
-            {
-                Id = order.Id,
-                UserId = order.UserId,
-                UserEmail = order.UserEmail,
-                Status = order.Status,
-                TotalAmount = order.TotalAmount,
-                PaymentTransactionId = order.PaymentTransactionId,
-                CreatedAt = order.CreatedAt,
-                UpdatedAt = order.UpdatedAt,
-                Items = order.Items.Select(i => new OrderItemResponse
-                {
-                    ProductId = i.ProductId,
-                    ProductName = i.ProductName,
-                    UnitPrice = i.UnitPrice,
-                    Quantity = i.Quantity,
-                    LineTotal = i.LineTotal
                 }).ToList()
             };
         }
