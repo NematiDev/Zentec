@@ -120,6 +120,8 @@ builder.Services.AddHttpClient<IUserClient, UserClient>(client =>
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMQ"));
 builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
+builder.Services.AddHostedService<PaymentEventsConsumer>();
+
 // Business services
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IOrderQueryService, OrderQueryService>();

@@ -6,6 +6,7 @@ using Serilog;
 using System.Reflection;
 using System.Text;
 using Zentec.PaymentService.Data;
+using Zentec.PaymentService.Messaging;
 using Zentec.PaymentService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -87,8 +88,11 @@ builder.Host.UseSerilog((context, config) =>
     config.ReadFrom.Configuration(context.Configuration);
 });
 
+builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMQ"));
+
 // Register services
 builder.Services.AddScoped<IStripePaymentService, StripePaymentService>();
+builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
 var app = builder.Build();
 

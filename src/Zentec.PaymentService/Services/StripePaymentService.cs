@@ -2,6 +2,7 @@
 using Stripe;
 using Stripe.Checkout;
 using Zentec.PaymentService.Data;
+using Zentec.PaymentService.Messaging;
 using Zentec.PaymentService.Models.DTOs;
 using Zentec.PaymentService.Models.Entities;
 
@@ -12,11 +13,13 @@ namespace Zentec.PaymentService.Services
         private readonly PaymentDbContext _db;
         private readonly ILogger<StripePaymentService> _logger;
         private readonly IConfiguration _config;
+        private readonly IRabbitMqPublisher _publisher;
 
         public StripePaymentService(
             PaymentDbContext db,
             ILogger<StripePaymentService> logger,
-            IConfiguration config)
+            IConfiguration config,
+            IRabbitMqPublisher publisher)
         {
             _db = db;
             _logger = logger;
@@ -24,6 +27,7 @@ namespace Zentec.PaymentService.Services
 
             // Set Stripe API key
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
+            _publisher = publisher;
         }
 
         public async Task<ApiResponse<PaymentCheckoutSessionResponse>> CreateCheckoutSessionAsync(
@@ -269,6 +273,16 @@ namespace Zentec.PaymentService.Services
                 transaction.UpdatedAt = DateTime.UtcNow;
 
                 await _db.SaveChangesAsync(ct);
+
+                _publisher.PublishPaymentSucceeded(new PaymentSucceededEvent(
+            OrderId: transaction.OrderId,
+            PaymentIntentId: paymentIntent.Id,
+            TransactionId: transaction.Id.ToString(),
+            Amount: transaction.Amount / 100m,
+            Currency: transaction.Currency,
+            PaidAtUtc: DateTime.UtcNow
+        ));
+
                 _logger.LogInformation("Payment succeeded for transaction {TransactionId}", transaction.Id);
             }
         }
@@ -285,6 +299,14 @@ namespace Zentec.PaymentService.Services
                 transaction.UpdatedAt = DateTime.UtcNow;
 
                 await _db.SaveChangesAsync(ct);
+
+                _publisher.PublishPaymentFailed(new PaymentFailedEvent(
+            OrderId: transaction.OrderId,
+            PaymentIntentId: paymentIntent.Id,
+            Reason: transaction.ErrorMessage ?? "Unknown error",
+            FailedAtUtc: DateTime.UtcNow
+        ));
+
                 _logger.LogWarning("Payment failed for transaction {TransactionId}: {Error}",
                     transaction.Id, transaction.ErrorMessage);
             }
