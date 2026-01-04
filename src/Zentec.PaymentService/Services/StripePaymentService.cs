@@ -24,10 +24,10 @@ namespace Zentec.PaymentService.Services
             _db = db;
             _logger = logger;
             _config = config;
+            _publisher = publisher;
 
             // Set Stripe API key
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
-            _publisher = publisher;
         }
 
         public async Task<ApiResponse<PaymentCheckoutSessionResponse>> CreateCheckoutSessionAsync(
@@ -211,28 +211,21 @@ namespace Zentec.PaymentService.Services
 
                 _logger.LogInformation("Received Stripe webhook: {EventType}", stripeEvent.Type);
 
-                if (stripeEvent.Type == "payment_intent.succeeded")
-                {
-                    var paymentIntent = stripeEvent.Data.Object as PaymentIntent;
-                    if (paymentIntent != null)
-                    {
-                        await HandlePaymentSucceededAsync(paymentIntent, ct);
-                    }
-                }
-                else if (stripeEvent.Type == "payment_intent.payment_failed")
-                {
-                    var paymentIntent = stripeEvent.Data.Object as PaymentIntent;
-                    if (paymentIntent != null)
-                    {
-                        await HandlePaymentFailedAsync(paymentIntent, ct);
-                    }
-                }
-                else if (stripeEvent.Type == "checkout.session.completed")
+                // Handle checkout session events only
+                if (stripeEvent.Type == "checkout.session.completed")
                 {
                     var session = stripeEvent.Data.Object as Session;
                     if (session != null)
                     {
                         await HandleCheckoutSessionCompletedAsync(session, ct);
+                    }
+                }
+                else if (stripeEvent.Type == "checkout.session.expired")
+                {
+                    var session = stripeEvent.Data.Object as Session;
+                    if (session != null)
+                    {
+                        await HandleCheckoutSessionExpiredAsync(session, ct);
                     }
                 }
             }
@@ -245,71 +238,96 @@ namespace Zentec.PaymentService.Services
 
         private async Task HandleCheckoutSessionCompletedAsync(Session session, CancellationToken ct)
         {
-            if (session.PaymentStatus == "paid" && session.PaymentIntentId != null)
+            _logger.LogInformation("Processing checkout.session.completed for session {SessionId}", session.Id);
+
+            if (session.PaymentStatus != "paid")
             {
-                var transaction = await _db.PaymentTransactions
-                    .FirstOrDefaultAsync(p => p.StripePaymentIntentId == session.PaymentIntentId, ct);
-
-                if (transaction != null)
-                {
-                    transaction.Status = PaymentStatus.Succeeded;
-                    transaction.UpdatedAt = DateTime.UtcNow;
-                    await _db.SaveChangesAsync(ct);
-
-                    _logger.LogInformation("Checkout session completed for transaction {TransactionId}", transaction.Id);
-                }
+                _logger.LogWarning("Checkout session {SessionId} payment status is {Status}, expected 'paid'",
+                    session.Id, session.PaymentStatus);
+                return;
             }
+
+            // Get order ID from session metadata
+            if (!session.Metadata.TryGetValue("order_id", out var orderId) || string.IsNullOrEmpty(orderId))
+            {
+                _logger.LogError("Checkout session {SessionId} missing order_id in metadata", session.Id);
+                return;
+            }
+
+            // Find transaction by OrderId
+            var transaction = await _db.PaymentTransactions
+                .FirstOrDefaultAsync(p => p.OrderId == orderId, ct);
+
+            if (transaction == null)
+            {
+                _logger.LogWarning("No transaction found for OrderId {OrderId}", orderId);
+                return;
+            }
+
+            // Skip if already processed
+            if (transaction.Status == PaymentStatus.Succeeded)
+            {
+                _logger.LogInformation("Transaction {TransactionId} already marked as succeeded", transaction.Id);
+                return;
+            }
+
+            // Update transaction
+            transaction.Status = PaymentStatus.Succeeded;
+            transaction.StripePaymentIntentId = session.PaymentIntentId;
+            transaction.StripeChargeId = session.Id; // Store session ID as charge reference
+            transaction.PaymentMethod = session.PaymentMethodTypes?.FirstOrDefault();
+            transaction.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync(ct);
+
+            // ⚠️ CRITICAL: Publish to RabbitMQ so OrderService can update order status
+            _publisher.PublishPaymentSucceeded(new PaymentSucceededEvent(
+                OrderId: transaction.OrderId,
+                PaymentIntentId: session.PaymentIntentId ?? session.Id,
+                TransactionId: transaction.Id.ToString(),
+                Amount: transaction.Amount / 100m,
+                Currency: transaction.Currency,
+                PaidAtUtc: DateTime.UtcNow
+            ));
+
+            _logger.LogInformation("✅ Payment succeeded for transaction {TransactionId}, order {OrderId}, published to RabbitMQ",
+                transaction.Id, orderId);
         }
 
-        private async Task HandlePaymentSucceededAsync(PaymentIntent paymentIntent, CancellationToken ct)
+        private async Task HandleCheckoutSessionExpiredAsync(Session session, CancellationToken ct)
         {
-            var transaction = await _db.PaymentTransactions
-                .FirstOrDefaultAsync(p => p.StripePaymentIntentId == paymentIntent.Id, ct);
+            _logger.LogInformation("Processing checkout.session.expired for session {SessionId}", session.Id);
 
-            if (transaction != null)
+            // Get order ID from session metadata
+            if (!session.Metadata.TryGetValue("order_id", out var orderId) || string.IsNullOrEmpty(orderId))
             {
-                transaction.Status = PaymentStatus.Succeeded;
-                transaction.StripeChargeId = paymentIntent.LatestChargeId;
-                transaction.UpdatedAt = DateTime.UtcNow;
-
-                await _db.SaveChangesAsync(ct);
-
-                _publisher.PublishPaymentSucceeded(new PaymentSucceededEvent(
-            OrderId: transaction.OrderId,
-            PaymentIntentId: paymentIntent.Id,
-            TransactionId: transaction.Id.ToString(),
-            Amount: transaction.Amount / 100m,
-            Currency: transaction.Currency,
-            PaidAtUtc: DateTime.UtcNow
-        ));
-
-                _logger.LogInformation("Payment succeeded for transaction {TransactionId}", transaction.Id);
+                _logger.LogWarning("Checkout session {SessionId} missing order_id in metadata", session.Id);
+                return;
             }
-        }
 
-        private async Task HandlePaymentFailedAsync(PaymentIntent paymentIntent, CancellationToken ct)
-        {
             var transaction = await _db.PaymentTransactions
-                .FirstOrDefaultAsync(p => p.StripePaymentIntentId == paymentIntent.Id, ct);
+                .FirstOrDefaultAsync(p => p.OrderId == orderId, ct);
 
-            if (transaction != null)
+            if (transaction == null || transaction.Status != PaymentStatus.Pending)
             {
-                transaction.Status = PaymentStatus.Failed;
-                transaction.ErrorMessage = paymentIntent.LastPaymentError?.Message;
-                transaction.UpdatedAt = DateTime.UtcNow;
-
-                await _db.SaveChangesAsync(ct);
-
-                _publisher.PublishPaymentFailed(new PaymentFailedEvent(
-            OrderId: transaction.OrderId,
-            PaymentIntentId: paymentIntent.Id,
-            Reason: transaction.ErrorMessage ?? "Unknown error",
-            FailedAtUtc: DateTime.UtcNow
-        ));
-
-                _logger.LogWarning("Payment failed for transaction {TransactionId}: {Error}",
-                    transaction.Id, transaction.ErrorMessage);
+                return;
             }
+
+            transaction.Status = PaymentStatus.Canceled;
+            transaction.ErrorMessage = "Checkout session expired";
+            transaction.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync(ct);
+
+            _publisher.PublishPaymentFailed(new PaymentFailedEvent(
+                OrderId: transaction.OrderId,
+                PaymentIntentId: session.Id,
+                Reason: "Checkout session expired",
+                FailedAtUtc: DateTime.UtcNow
+            ));
+
+            _logger.LogWarning("❌ Checkout session expired for transaction {TransactionId}, order {OrderId}",
+                transaction.Id, orderId);
         }
 
         private static PaymentTransactionResponse MapToResponse(PaymentTransaction payment)
