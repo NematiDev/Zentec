@@ -1,25 +1,31 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
 using System.Text.Json;
+using Zentec.NotificationService.Services;
 
 namespace Zentec.NotificationService.Messaging
 {
     /// <summary>
-    /// Consumes order events from RabbitMQ and simulates sending notifications.
+    /// Consumes order events from RabbitMQ and sends email notifications.
     /// </summary>
     public class OrderEventsConsumer : BackgroundService
     {
         private readonly RabbitMqOptions _options;
         private readonly ILogger<OrderEventsConsumer> _logger;
+        private readonly IServiceProvider _serviceProvider;
         private IConnection? _connection;
         private IModel? _channel;
 
-        public OrderEventsConsumer(IOptions<RabbitMqOptions> options, ILogger<OrderEventsConsumer> logger)
+        public OrderEventsConsumer(
+            IOptions<RabbitMqOptions> options,
+            ILogger<OrderEventsConsumer> logger,
+            IServiceProvider serviceProvider)
         {
             _options = options.Value;
             _logger = logger;
+            _serviceProvider = serviceProvider;
         }
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,6 +71,10 @@ namespace Zentec.NotificationService.Messaging
 
         private async Task OnMessageAsync(object sender, BasicDeliverEventArgs ea)
         {
+            // Create a scope for dependency injection
+            using var scope = _serviceProvider.CreateScope();
+            var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+
             try
             {
                 var routingKey = ea.RoutingKey;
@@ -73,27 +83,68 @@ namespace Zentec.NotificationService.Messaging
                 if (routingKey == "order.paid")
                 {
                     var evt = JsonSerializer.Deserialize<OrderPaidEvent>(json, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-                    _logger.LogInformation("[NOTIFY] Order PAID. OrderId={OrderId} Email={Email} Amount={Amount}", evt?.OrderId, evt?.UserEmail, evt?.TotalAmount);
+
+                    if (evt != null)
+                    {
+                        _logger.LogInformation("[NOTIFY] Order PAID. OrderId={OrderId} Email={Email} Amount={Amount}",
+                            evt.OrderId, evt.UserEmail, evt.TotalAmount);
+
+                        // Send email notification
+                        var emailSent = await emailService.SendOrderConfirmationEmailAsync(
+                            evt.UserEmail,
+                            evt.OrderId,
+                            evt.TotalAmount);
+
+                        if (emailSent)
+                        {
+                            _logger.LogInformation("✅ Order confirmation email sent to {Email} for order {OrderId}",
+                                evt.UserEmail, evt.OrderId);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("⚠️ Failed to send order confirmation email to {Email} for order {OrderId}",
+                                evt.UserEmail, evt.OrderId);
+                        }
+                    }
                 }
                 else if (routingKey == "order.payment_failed")
                 {
                     var evt = JsonSerializer.Deserialize<OrderPaymentFailedEvent>(json, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-                    _logger.LogWarning("[NOTIFY] Order PAYMENT FAILED. OrderId={OrderId} Email={Email} Reason={Reason}", evt?.OrderId, evt?.UserEmail, evt?.Reason);
+
+                    if (evt != null)
+                    {
+                        _logger.LogWarning("[NOTIFY] Order PAYMENT FAILED. OrderId={OrderId} Email={Email} Reason={Reason}",
+                            evt.OrderId, evt.UserEmail, evt.Reason);
+
+                        // Send email notification
+                        var emailSent = await emailService.SendPaymentFailedEmailAsync(
+                            evt.UserEmail,
+                            evt.OrderId,
+                            evt.Reason);
+
+                        if (emailSent)
+                        {
+                            _logger.LogInformation("✅ Payment failed email sent to {Email} for order {OrderId}",
+                                evt.UserEmail, evt.OrderId);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("⚠️ Failed to send payment failed email to {Email} for order {OrderId}",
+                                evt.UserEmail, evt.OrderId);
+                        }
+                    }
                 }
                 else
                 {
                     _logger.LogInformation("[NOTIFY] Unknown routing key {RoutingKey}: {Body}", routingKey, json);
                 }
 
-                // Simulate sending email/SMS
-                await Task.Delay(30);
-
                 _channel?.BasicAck(ea.DeliveryTag, multiple: false);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error handling message {RoutingKey}", ea.RoutingKey);
-                // Requeue once
+                // Requeue once on error
                 _channel?.BasicNack(ea.DeliveryTag, multiple: false, requeue: true);
             }
         }
@@ -109,6 +160,7 @@ namespace Zentec.NotificationService.Messaging
             }
             catch
             {
+                // Ignore disposal errors
             }
 
             base.Dispose();

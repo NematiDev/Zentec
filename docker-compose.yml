@@ -181,6 +181,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
+      Email__SmtpServer: smtp.gmail.com
+      Email__SmtpPort: 587
+      Email__FromEmail: ${GMAIL_EMAIL}
+      Email__FromPassword: ${GMAIL_APP_PASSWORD}
+      Email__FromName: "Zentec E-Commerce"
       RabbitMQ__HostName: rabbitmq
       RabbitMQ__Port: 5672
       RabbitMQ__UserName: guest
