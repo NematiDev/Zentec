@@ -192,8 +192,25 @@ services:
       RabbitMQ__Password: guest
       RabbitMQ__Exchange: zentec.order
       RabbitMQ__Queue: zentec.notification
+
+  # ---------- API Gateway ----------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/Zentec.ApiGateway/Dockerfile
+    networks:
+      - zentec-network
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+      - payment-service
+      - notification-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
     ports:
-      - "5005:8080"
+      - "5000:8080"
 
 volumes:
   zentec_user_pgdata:
